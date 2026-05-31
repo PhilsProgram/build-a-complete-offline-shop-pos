@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+*.log
+server/database/*.db
+server/database/*.db-shm
+server/database/*.db-wal
+server/backups/*.db
+server/uploads
+frontend/.vite
