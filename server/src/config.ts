@@ -1,15 +1,14 @@
-import dotenv from 'dotenv';
-import path from 'node:path';
+import path from "node:path";
+import { fileURLToPath } from "url";
 
-dotenv.config();
+const SERVER_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".."
+);
 
-const serverRoot = process.cwd();
+export const storageRoot = path.resolve(SERVER_ROOT, "../storage");
 
-/*
-  STORAGE ROOT
-  Keeps business data outside the app folders
-*/
-const storageRoot = path.resolve(serverRoot, '../storage');
+export const uploadsDir = path.join(storageRoot, "uploads");
 
 export const config = {
   host: process.env.HOST ?? '0.0.0.0',
@@ -19,12 +18,12 @@ export const config = {
   httpsEnabled: process.env.HTTPS_ENABLED === 'true',
 
   httpsKeyPath: path.resolve(
-    serverRoot,
+    SERVER_ROOT,
     process.env.HTTPS_KEY_PATH ?? './certs/pos-key.pem'
   ),
 
   httpsCertPath: path.resolve(
-    serverRoot,
+    SERVER_ROOT,
     process.env.HTTPS_CERT_PATH ?? './certs/pos-cert.pem'
   ),
 
@@ -75,7 +74,7 @@ export const config = {
     FRONTEND BUILD
   */
   frontendDist: path.resolve(
-    serverRoot,
+    SERVER_ROOT,
     '../frontend/dist'
   )
 };

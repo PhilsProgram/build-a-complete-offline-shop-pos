@@ -39,6 +39,7 @@ export function createApp() {
 
   app.use("/api/upload", uploadRoutes);
   app.use("/uploads", express.static(config.uploadsDir));
+  console.log("uploadsDir:", config.uploadsDir);
 
   if (fs.existsSync(config.frontendDist)) {
     app.use(express.static(config.frontendDist));
