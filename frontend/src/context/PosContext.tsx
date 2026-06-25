@@ -13,7 +13,11 @@ interface PosContextValue {
 
   suspendedSales: SuspendedSale[];
 
-  addProduct: (product: Product, quantity?: number) => void;
+  addProduct: (
+    product: Product,
+    quantity?: number,
+    saleType?: "PACK" | "HALF" | "SINGLE",
+  ) => void;
 
   updateQuantity: (productId: number, quantity: number) => void;
 
@@ -45,17 +49,22 @@ export function PosProvider({ children }: { children: React.ReactNode }) {
 
       suspendedSales,
 
-      addProduct(product) {
+      addProduct(product, quantity = 1, saleType = "PACK") {
         setCart((lines) => {
-          const existing = lines.find((line) => line.product.id === product.id);
+          const existing = lines.find(
+            (line) =>
+              line.product.id === product.id &&
+              (line.saleType ?? "PACK") === saleType,
+          );
 
           if (existing) {
             return lines.map((line) =>
-              line.product.id === product.id
+              line.product.id === product.id &&
+              (line.saleType ?? "PACK") === saleType
                 ? {
                     ...line,
                     quantity: Math.min(
-                      line.quantity + 1,
+                      line.quantity + quantity,
                       product.stockQuantity,
                     ),
                   }
@@ -67,8 +76,9 @@ export function PosProvider({ children }: { children: React.ReactNode }) {
             ...lines,
             {
               product,
-              quantity: 1,
+              quantity,
               discount: 0,
+              saleType,
             },
           ];
         });

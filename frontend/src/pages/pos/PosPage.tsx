@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, useRef } from "react";
 import {
   Barcode,
   Minus,
@@ -29,6 +29,8 @@ import type {
 import { shortDateTime } from "../../utils/dates";
 import { money, numberInput } from "../../utils/money";
 import { getImageUrl } from "../../utils/api";
+import { ReceiptView } from "../../components/ReceiptView";
+import { socket } from "../../lib/socket";
 
 interface PaymentLine {
   method: PaymentMethod;
@@ -67,6 +69,10 @@ export function PosPage() {
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [quantityOpen, setQuantityOpen] = useState(false);
   const { suspendSale, suspendedSales, resumeSale } = usePos();
+  const [barcodeBuffer, setBarcodeBuffer] = useState("");
+  const [scanMessage, setScanMessage] = useState("");
+  const [scanType, setScanType] = useState<"success" | "error">("success");
+  const [saleType, setSaleType] = useState<"PACK" | "HALF" | "SINGLE">("PACK");
 
   const taxRate = Number(settings.taxRate ?? 0);
   const taxable = Math.max(subtotal - orderDiscount, 0);
@@ -77,6 +83,10 @@ export function PosPage() {
   );
 
   const favoriteProducts = products.filter((product) => product.isFavorite);
+
+  const successBeep = useRef(new Audio("/sounds/beep.mp3"));
+
+  const errorBeep = useRef(new Audio("/sounds/error.mp3"));
 
   const lowStockCount = lowStockProducts.length;
 
@@ -98,6 +108,16 @@ export function PosPage() {
     void loadCatalog();
   }, []);
 
+  useEffect(() => {
+    socket.on("stock-updated", () => {
+      void loadCatalog();
+    });
+
+    return () => {
+      socket.off("stock-updated");
+    };
+  }, []);
+
   const paidWithoutDebt = useMemo(
     () =>
       payments
@@ -105,6 +125,52 @@ export function PosPage() {
         .reduce((sum, payment) => sum + payment.amount, 0),
     [payments],
   );
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Ignore typing inside inputs
+      const target = event.target as HTMLElement;
+
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
+        return;
+      }
+
+      if (event.key === "Enter") {
+        const barcode = barcodeBuffer.trim();
+
+        if (!barcode) return;
+
+        const product = products.find((p) => p.barcode === barcode);
+
+        if (product) {
+          addProduct(product);
+
+          successBeep.current.currentTime = 0;
+          void successBeep.current.play().catch(() => {});
+
+          showScanSuccess(product.name);
+        } else {
+          errorBeep.current.currentTime = 0;
+          void errorBeep.current.play().catch(() => {});
+
+          showScanError(barcode);
+        }
+
+        setBarcodeBuffer("");
+        return;
+      }
+
+      if (event.key.length === 1) {
+        setBarcodeBuffer((current) => current + event.key);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [barcodeBuffer, products, addProduct]);
 
   const balanceDue = Number(Math.max(total - paidWithoutDebt, 0).toFixed(2));
 
@@ -126,6 +192,24 @@ export function PosPage() {
     setCheckoutOpen(true);
   }
 
+  function showScanSuccess(productName: string) {
+    setScanType("success");
+    setScanMessage(`✓ ${productName} added`);
+
+    setTimeout(() => {
+      setScanMessage("");
+    }, 1500);
+  }
+
+  function showScanError(barcode: string) {
+    setScanType("error");
+    setScanMessage(`⚠ Product not found (${barcode})`);
+
+    setTimeout(() => {
+      setScanMessage("");
+    }, 2000);
+  }
+
   async function checkout(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -145,6 +229,7 @@ export function PosPage() {
           productId: line.product.id,
           quantity: line.quantity,
           discount: line.discount,
+          saleType: line.saleType ?? "PACK",
         })),
         discount: orderDiscount,
         tax,
@@ -171,7 +256,157 @@ export function PosPage() {
   }
 
   function printReceipt() {
-    window.print();
+    const content = document.getElementById("receipt-print");
+
+    if (!content) return;
+
+    const printWindow = window.open("", "", "width=420,height=800");
+
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+    <html>
+      <head>
+        <title>Receipt</title>
+
+        <style>
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            font-family: Arial, sans-serif;
+            width: 80mm;
+            margin: 0 auto;
+            padding: 10px;
+            background: white;
+            color: #000;
+            font-size: 12px;
+          }
+
+          h1,
+          h2,
+          h3,
+          h4,
+          h5,
+          p {
+            margin: 0;
+          }
+
+          .text-center {
+            text-align: center;
+          }
+
+          .font-bold {
+            font-weight: bold;
+          }
+
+          .text-xs {
+            font-size: 11px;
+          }
+
+          .text-sm {
+            font-size: 12px;
+          }
+
+          .text-lg {
+            font-size: 16px;
+          }
+
+          .mt-1 { margin-top: 4px; }
+          .mt-2 { margin-top: 8px; }
+          .mt-4 { margin-top: 16px; }
+          .mt-5 { margin-top: 20px; }
+
+          .pt-3 {
+            padding-top: 12px;
+          }
+
+          .grid {
+            display: grid;
+            gap: 8px;
+          }
+
+          .flex {
+            display: flex;
+          }
+
+          .justify-between {
+            justify-content: space-between;
+          }
+
+          .items-start {
+            align-items: flex-start;
+          }
+
+          .gap-2 {
+            gap: 8px;
+          }
+
+          .gap-3 {
+            gap: 12px;
+          }
+
+          img {
+            width: 40px;
+            height: 40px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
+          }
+
+          hr {
+            border: none;
+            border-top: 1px dashed #999;
+            margin: 10px 0;
+          }
+
+          .receipt-total {
+            font-size: 18px;
+            font-weight: bold;
+          }
+
+          .receipt-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 12px;
+          }
+               
+          .receipt-item-total {
+            font-weight: bold;
+            white-space: nowrap;
+            text-align: right;
+            min-width: 70px;
+          }
+
+          .footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 11px;
+            color: #555;
+          }
+        </style>
+      </head>
+
+      <body>
+        ${content.innerHTML}
+      </body>
+    </html>
+  `);
+
+    printWindow.document.close();
+
+    printWindow.focus();
+
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
   }
 
   function openProductModal(product: Product) {
@@ -205,6 +440,10 @@ export function PosPage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search product or scan barcode"
             />
+            <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
+              <span className="h-3 w-3 animate-pulse rounded-full bg-emerald-500"></span>
+              Barcode Scanner Ready
+            </div>
           </div>
 
           <Select
@@ -262,6 +501,18 @@ export function PosPage() {
                   onClick={() => addProduct(product)}
                   className="rounded-2xl bg-till p-4 text-left text-white shadow-lg transition hover:scale-105"
                 >
+                  {product.imageUrl ? (
+                    <img
+                      src={getImageUrl(product.imageUrl)}
+                      alt={product.name}
+                      className="mb-4 h-40 w-full rounded-2xl object-cover"
+                    />
+                  ) : (
+                    <div className="mb-4 grid h-40 place-items-center rounded-2xl bg-slate-100 text-lg font-black text-slate-500">
+                      {product.name.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
+
                   <p className="font-black">{product.name}</p>
 
                   <p className="mt-1 text-sm opacity-80">
@@ -283,6 +534,7 @@ export function PosPage() {
                 const timer = window.setTimeout(() => {
                   setSelectedProduct(product);
                   setSelectedQuantity(1);
+                  setSaleType("PACK");
                   setQuantityOpen(true);
                 }, 220);
 
@@ -321,20 +573,35 @@ export function PosPage() {
                 </p>
               </div>
 
-              <div className="mt-4 flex items-center justify-between">
-                <strong className="text-lg text-till">
-                  {money(product.price, String(settings.currency ?? "GHS"))}
-                </strong>
+              <div className="mt-4">
+                <div className="flex items-center justify-between">
+                  <strong className="text-lg text-till">
+                    {money(product.price, String(settings.currency ?? "GHS"))}
+                  </strong>
 
-                <Badge
-                  tone={
-                    product.stockQuantity <= product.reorderLevel
-                      ? "warn"
-                      : "good"
-                  }
-                >
-                  {product.stockQuantity}
-                </Badge>
+                  <Badge
+                    tone={
+                      product.stockQuantity <= product.reorderLevel
+                        ? "warn"
+                        : "good"
+                    }
+                  >
+                    {Number.isInteger(product.stockQuantity)
+                      ? product.stockQuantity
+                      : product.stockQuantity.toFixed(2)}
+                  </Badge>
+                </div>
+
+                {product.allowSplitSales ? (
+                  <p className="mt-2 text-xs font-medium text-emerald-700">
+                    {product.unitsPerPack ?? 1} units per pack
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-400">
+                    Sold as full pack only
+                  </p>
+                )}
+
                 {product.stockQuantity < 20 && (
                   <p className="mt-2 text-sm font-bold text-amber-700">
                     Only {product.stockQuantity} left
@@ -395,12 +662,36 @@ export function PosPage() {
                   className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-bold">{line.product.name}</h3>
+                    <div className="flex gap-3">
+                      {line.product.imageUrl ? (
+                        <img
+                          src={getImageUrl(line.product.imageUrl)}
+                          alt={line.product.name}
+                          className="h-12 w-12 rounded-lg object-cover border"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-lg border bg-slate-100" />
+                      )}
 
-                      <p className="text-sm text-slate-500">
-                        {money(line.product.price)} each
-                      </p>
+                      <div>
+                        <h3 className="font-bold">{line.product.name}</h3>
+
+                        <p className="text-sm text-slate-500">
+                          {line.quantity}{" "}
+                          {line.saleType === "HALF"
+                            ? line.quantity > 1
+                              ? "Halves"
+                              : "Half"
+                            : line.saleType === "SINGLE"
+                              ? line.quantity > 1
+                                ? "Singles"
+                                : "Single"
+                              : line.quantity > 1
+                                ? "Packs"
+                                : "Pack"}{" "}
+                          × {money(line.product.price)}
+                        </p>
+                      </div>
                     </div>
 
                     <Button
@@ -555,145 +846,227 @@ export function PosPage() {
         </>
       )}
 
-<Modal
-  title=""
-  open={quantityOpen}
-  onClose={() => setQuantityOpen(false)}
->
-  {selectedProduct && (
-    <div
-      className="relative overflow-hidden rounded-[32px]"
-      style={{
-        backgroundImage: `url(${getImageUrl(selectedProduct.imageUrl)})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      }}
-    >
-      {/* Blur + Dark Overlay */}
-      <div className="absolute inset-0 bg-white/20 " />
-
-      {/* Gradient Overlay */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/60 to-black/90" />
-
-      {/* Content */}
-      <div className="relative z-10 p-6">
-        {/* Product Info */}
-        <div className="text-center">
-          <h2 className="text-3xl font-black tracking-tight text-white">
-            {selectedProduct.name}
-          </h2>
-
-          <p className="mt-2 text-lg font-semibold text-white/70">
-            {money(selectedProduct.price)}
-          </p>
-        </div>
-
-        {/* Quantity Controller */}
-        <div className="mt-10 flex items-center justify-center gap-5">
-          <button
-            type="button"
-            onClick={() =>
-              setSelectedQuantity((qty) =>
-                Math.max(1, qty - 1),
-              )
-            }
-            className="grid h-14 w-14 place-items-center rounded-2xl border border-white/20 bg-white/10 text-white backdrop-blur-xl transition hover:scale-110"
+      <Modal
+        title=""
+        open={quantityOpen}
+        onClose={() => setQuantityOpen(false)}
+      >
+        {selectedProduct && (
+          <div
+            className="relative overflow-hidden rounded-[32px]"
+            style={{
+              backgroundImage: `url(${getImageUrl(selectedProduct.imageUrl)})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
           >
-            <Minus size={22} />
-          </button>
+            {/* Blur + Dark Overlay */}
+            <div className="absolute inset-0 bg-white/20 " />
 
-          <div className="min-w-[120px] rounded-3xl border border-white/10 bg-white/10 px-6 py-4 text-center backdrop-blur-xl">
-            <span className="text-5xl font-black text-white">
-              {selectedQuantity}
-            </span>
+            {/* Gradient Overlay */}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/60 to-black/90" />
+
+            {/* Content */}
+            <div className="relative z-10 p-6">
+              {/* Product Info */}
+              <div className="text-center">
+                <h2 className="text-3xl font-black tracking-tight text-white">
+                  {selectedProduct.name}
+                </h2>
+
+                <p className="mt-2 text-lg font-semibold text-white/70">
+                  {money(selectedProduct.price)}
+                </p>
+              </div>
+
+              {/* Quantity Controller */}
+              <div className="mt-10 flex items-center justify-center gap-5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedQuantity((qty) => Math.max(1, qty - 1))
+                  }
+                  className="grid h-14 w-14 place-items-center rounded-2xl border border-white/20 bg-white/10 text-white backdrop-blur-xl transition hover:scale-110"
+                >
+                  <Minus size={22} />
+                </button>
+
+                <div className="min-w-[120px] rounded-3xl border border-white/10 bg-white/10 px-6 py-4 text-center backdrop-blur-xl">
+                  <span className="text-5xl font-black text-white">
+                    <div className="text-center">
+                      <p className="text-5xl font-black text-white">
+                        {selectedQuantity}
+                      </p>
+
+                      {selectedProduct.allowSplitSales && (
+                        <p className="mt-2 text-sm text-white/70">
+                          of {selectedProduct.unitsPerPack} units per pack
+                        </p>
+                      )}
+                    </div>
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedQuantity((qty) =>
+                      Math.min(selectedProduct.stockQuantity, qty + 1),
+                    )
+                  }
+                  className="grid h-14 w-14 place-items-center rounded-2xl border border-white/20 bg-white/10 text-white backdrop-blur-xl transition hover:scale-110"
+                >
+                  <Plus size={22} />
+                </button>
+              </div>
+
+              <div className="mt-4">
+                <label className="mb-2 block text-sm font-semibold text-white">
+                  Quantity
+                </label>
+
+                <input
+                  type="number"
+                  min={1}
+                  max={selectedProduct.stockQuantity}
+                  value={selectedQuantity}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+
+                    if (Number.isNaN(value)) return;
+
+                    setSelectedQuantity(
+                      Math.max(
+                        1,
+                        Math.min(selectedProduct.stockQuantity, value),
+                      ),
+                    );
+                  }}
+                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-center text-lg font-bold text-white outline-none backdrop-blur-xl"
+                />
+              </div>
+
+              {/* Quick Quantity */}
+              {/* Quick Quantity */}
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                {/* Normal quantity buttons */}
+                {[1, 5, 10].map((qty) => (
+                  <button
+                    key={qty}
+                    type="button"
+                    onClick={() =>
+                      setSelectedQuantity((current) =>
+                        Math.min(selectedProduct.stockQuantity, current + qty),
+                      )
+                    }
+                    className="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-bold text-white backdrop-blur-xl transition hover:scale-105"
+                  >
+                    +{qty}
+                  </button>
+                ))}
+
+                {/* Split sale buttons */}
+                {selectedProduct.allowSplitSales && (
+                  <div className="mt-6 grid grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaleType("PACK");
+                        setSelectedQuantity(1);
+                      }}
+                      className={`rounded-2xl px-4 py-3 font-bold ${
+                        saleType === "PACK"
+                          ? "bg-emerald-600 text-white"
+                          : "bg-white/10 text-white"
+                      }`}
+                    >
+                      Pack
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaleType("HALF");
+                        setSelectedQuantity(1);
+                      }}
+                      className={`rounded-2xl px-4 py-3 font-bold ${
+                        saleType === "HALF"
+                          ? "bg-amber-500 text-white"
+                          : "bg-white/10 text-white"
+                      }`}
+                    >
+                      Half
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaleType("SINGLE");
+                        setSelectedQuantity(1);
+                      }}
+                      className={`rounded-2xl px-4 py-3 font-bold ${
+                        saleType === "SINGLE"
+                          ? "bg-sky-600 text-white"
+                          : "bg-white/10 text-white"
+                      }`}
+                    >
+                      Single
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Totals */}
+              <div className="mt-8 rounded-3xl border border-white/10 bg-white/10 p-5 text-center backdrop-blur-xl">
+                <p className="text-sm text-white/70">Remaining after sale</p>
+
+                <p className="mt-1 text-lg font-bold text-white">
+                  {selectedProduct.stockQuantity - selectedQuantity}
+                </p>
+
+                <div className="my-4 h-px bg-white/10" />
+
+                <p className="text-sm text-white/70">Total</p>
+
+                <h2 className="mt-2 text-4xl font-black text-white">
+                  {money(
+                    selectedProduct.price * selectedQuantity,
+                    String(settings.currency ?? "GHS"),
+                  )}
+                </h2>
+              </div>
+
+              {/* Add To Cart */}
+              <button
+                onClick={() => {
+                  let productToSell = { ...selectedProduct };
+
+                  if (
+                    selectedProduct.allowSplitSales &&
+                    selectedProduct.unitsPerPack
+                  ) {
+                    if (saleType === "HALF") {
+                      productToSell.price = selectedProduct.price / 2;
+                    }
+
+                    if (saleType === "SINGLE") {
+                      productToSell.price =
+                        selectedProduct.price / selectedProduct.unitsPerPack;
+                    }
+                  }
+
+                  addProduct(productToSell, selectedQuantity, saleType);
+
+                  setQuantityOpen(false);
+                }}
+                className="mt-8 h-16 w-full rounded-3xl bg-white text-lg font-black text-slate-900 transition hover:scale-[1.02]"
+              >
+                Add To Cart
+              </button>
+            </div>
           </div>
-
-          <button
-            type="button"
-            onClick={() =>
-              setSelectedQuantity((qty) =>
-                Math.min(
-                  selectedProduct.stockQuantity,
-                  qty + 1,
-                ),
-              )
-            }
-            className="grid h-14 w-14 place-items-center rounded-2xl border border-white/20 bg-white/10 text-white backdrop-blur-xl transition hover:scale-110"
-          >
-            <Plus size={22} />
-          </button>
-        </div>
-
-        {/* Quick Quantity */}
-        <div className="mt-6 flex justify-center gap-3">
-          {[1, 5, 10].map((qty) => (
-            <button
-              key={qty}
-              type="button"
-              onClick={() =>
-                setSelectedQuantity((current) =>
-                  Math.min(
-                    selectedProduct.stockQuantity,
-                    current + qty,
-                  ),
-                )
-              }
-              className="rounded-2xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-bold text-white backdrop-blur-xl transition hover:scale-105"
-            >
-              +{qty}
-            </button>
-          ))}
-        </div>
-
-        {/* Totals */}
-        <div className="mt-8 rounded-3xl border border-white/10 bg-white/10 p-5 text-center backdrop-blur-xl">
-          <p className="text-sm text-white/70">
-            Remaining after sale
-          </p>
-
-          <p className="mt-1 text-lg font-bold text-white">
-            {selectedProduct.stockQuantity -
-              selectedQuantity}
-          </p>
-
-          <div className="my-4 h-px bg-white/10" />
-
-          <p className="text-sm text-white/70">
-            Total
-          </p>
-
-          <h2 className="mt-2 text-4xl font-black text-white">
-            {money(
-              selectedProduct.price *
-                selectedQuantity,
-              String(
-                settings.currency ?? "GHS",
-              ),
-            )}
-          </h2>
-        </div>
-
-        {/* Add To Cart */}
-        <button
-          onClick={() => {
-            for (
-              let i = 0;
-              i < selectedQuantity;
-              i++
-            ) {
-              addProduct(selectedProduct);
-            }
-
-            setQuantityOpen(false);
-          }}
-          className="mt-8 h-16 w-full rounded-3xl bg-white text-lg font-black text-slate-900 transition hover:scale-[1.02]"
-        >
-          Add To Cart
-        </button>
-      </div>
-    </div>
-  )}
-</Modal>
+        )}
+      </Modal>
 
       <Modal
         title="Checkout"
@@ -836,105 +1209,7 @@ export function PosPage() {
       >
         {receipt && (
           <div className="grid gap-4">
-            <div
-              id="receipt-print"
-              className="mx-auto w-full max-w-sm bg-white p-2 text-sm text-ink"
-            >
-              {/* Shop Header */}
-              <div className="text-center">
-                <h2 className="text-xl font-black uppercase tracking-wide">
-                  {String(settings.shopName ?? "Offline Shop POS")}
-                </h2>
-
-                <p className="mt-1 text-xs text-slate-500">
-                  {String(settings.shopAddress ?? "")}
-                </p>
-
-                <p className="text-xs text-slate-500">
-                  {String(settings.shopPhone ?? "")}
-                </p>
-              </div>
-
-              {/* Receipt Info */}
-              <div className="mt-4 grid gap-1 py-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Receipt No</span>
-                  <strong>{receipt.receiptNo}</strong>
-                </div>
-
-                <div className="flex justify-between">
-                  <span>Cashier</span>
-                  <strong>{receipt.employeeName}</strong>
-                </div>
-
-                <div className="flex justify-between">
-                  <span>Date</span>
-                  <strong>{shortDateTime(receipt.createdAt)}</strong>
-                </div>
-              </div>
-
-              {/* Items */}
-              <div className="mt-4 grid gap-3">
-                {receipt.items?.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-start justify-between gap-3"
-                  >
-                    <div>
-                      <p className="font-bold">{item.productName}</p>
-
-                      <p className="text-xs text-slate-500">
-                        {item.quantity} × {money(item.unitPrice)}
-                      </p>
-                    </div>
-
-                    <strong>{money(item.lineTotal)}</strong>
-                  </div>
-                ))}
-              </div>
-
-              {/* Totals */}
-              <div className="mt-5 grid gap-2 pt-3">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <strong>{money(receipt.subtotal)}</strong>
-                </div>
-
-                <div className="flex justify-between">
-                  <span>Discount</span>
-                  <strong>{money(receipt.discount)}</strong>
-                </div>
-
-                <div className="flex justify-between">
-                  <span>Tax</span>
-                  <strong>{money(receipt.tax)}</strong>
-                </div>
-
-                <div className="flex justify-between text-lg">
-                  <span className="font-black">Total</span>
-
-                  <strong className="font-black text-till">
-                    {money(receipt.total)}
-                  </strong>
-                </div>
-
-                <div className="flex justify-between">
-                  <span>Change</span>
-                  <strong>{money(receipt.changeDue)}</strong>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="mt-5 pt-3 text-center">
-                <p className="text-sm font-semibold text-slate-700">
-                  Thank you for shopping with us
-                </p>
-
-                <p className="mt-2 text-xs text-slate-500">
-                  {String(settings.receiptFooter ?? "")}
-                </p>
-              </div>
-            </div>
+            <ReceiptView receipt={receipt} settings={settings} />
 
             {/* Actions */}
             <div className="grid gap-2 sm:grid-cols-2">
@@ -954,6 +1229,18 @@ export function PosPage() {
           </div>
         )}
       </Modal>
+
+      {scanMessage && (
+        <div
+          className={`fixed right-6 top-6 z-50 rounded-2xl px-6 py-4 font-bold shadow-2xl transition-all ${
+            scanType === "success"
+              ? "bg-green-600 text-white"
+              : "bg-red-600 text-white"
+          }`}
+        >
+          {scanMessage}
+        </div>
+      )}
     </main>
   );
 }

@@ -29,19 +29,16 @@ export function migrateDatabase() {
       description TEXT,
       category_id INTEGER,
       image_url TEXT,
-
       is_favorite INTEGER NOT NULL DEFAULT 0,
-
       price REAL NOT NULL CHECK (price >= 0),
       cost_price REAL NOT NULL DEFAULT 0 CHECK (cost_price >= 0),
-      stock_quantity INTEGER NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+      stock_quantity REAL NOT NULL DEFAULT 0 CHECK (stock_quantity >= 0),
+      units_per_pack INTEGER NOT NULL DEFAULT 1,
+      allow_split_sales INTEGER NOT NULL DEFAULT 0,
       reorder_level INTEGER NOT NULL DEFAULT 5 CHECK (reorder_level >= 0),
-
       active INTEGER NOT NULL DEFAULT 1,
-
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
       FOREIGN KEY (category_id)
         REFERENCES categories(id)
         ON DELETE SET NULL
@@ -60,22 +57,16 @@ export function migrateDatabase() {
 
     CREATE TABLE IF NOT EXISTS transactions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
       receipt_no TEXT NOT NULL UNIQUE,
-
       customer_id INTEGER,
       employee_id INTEGER NOT NULL,
-
       subtotal REAL NOT NULL,
       discount REAL NOT NULL DEFAULT 0,
       tax REAL NOT NULL DEFAULT 0,
       total REAL NOT NULL,
-
       cost_total REAL NOT NULL DEFAULT 0,
       profit REAL NOT NULL DEFAULT 0,
-
       payment_method TEXT NOT NULL,
-
       payment_status TEXT NOT NULL DEFAULT 'PAID'
       CHECK (
         payment_status IN (
@@ -85,18 +76,13 @@ export function migrateDatabase() {
           'VOID'
         )
       ),
-
       cash_received REAL NOT NULL DEFAULT 0,
       change_due REAL NOT NULL DEFAULT 0,
-
       notes TEXT,
-
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
       FOREIGN KEY (customer_id)
         REFERENCES customers(id)
         ON DELETE SET NULL,
-
       FOREIGN KEY (employee_id)
         REFERENCES users(id)
         ON DELETE RESTRICT
@@ -104,27 +90,19 @@ export function migrateDatabase() {
 
     CREATE TABLE IF NOT EXISTS transaction_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
       transaction_id INTEGER NOT NULL,
       product_id INTEGER,
-
       product_name TEXT NOT NULL,
-
       quantity INTEGER NOT NULL CHECK (quantity > 0),
-
       unit_price REAL NOT NULL,
       unit_cost REAL NOT NULL DEFAULT 0,
-
       discount REAL NOT NULL DEFAULT 0,
-
       line_total REAL NOT NULL,
-
+      sale_type TEXT NOT NULL DEFAULT 'PACK',
       profit REAL NOT NULL DEFAULT 0,
-
       FOREIGN KEY (transaction_id)
         REFERENCES transactions(id)
         ON DELETE CASCADE,
-
       FOREIGN KEY (product_id)
         REFERENCES products(id)
         ON DELETE SET NULL
@@ -132,9 +110,7 @@ export function migrateDatabase() {
 
     CREATE TABLE IF NOT EXISTS transaction_payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
       transaction_id INTEGER NOT NULL,
-
       method TEXT NOT NULL
       CHECK (
         method IN (
@@ -145,13 +121,9 @@ export function migrateDatabase() {
           'SPLIT'
         )
       ),
-
       amount REAL NOT NULL CHECK (amount >= 0),
-
       reference TEXT,
-
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
       FOREIGN KEY (transaction_id)
         REFERENCES transactions(id)
         ON DELETE CASCADE
@@ -159,15 +131,11 @@ export function migrateDatabase() {
 
     CREATE TABLE IF NOT EXISTS debtors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
       customer_id INTEGER NOT NULL,
       transaction_id INTEGER,
-
       amount_due REAL NOT NULL CHECK (amount_due >= 0),
       amount_paid REAL NOT NULL DEFAULT 0 CHECK (amount_paid >= 0),
-
       due_date TEXT,
-
       status TEXT NOT NULL DEFAULT 'OPEN'
       CHECK (
         status IN (
@@ -177,16 +145,12 @@ export function migrateDatabase() {
           'OVERDUE'
         )
       ),
-
       notes TEXT,
-
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
       FOREIGN KEY (customer_id)
         REFERENCES customers(id)
         ON DELETE CASCADE,
-
       FOREIGN KEY (transaction_id)
         REFERENCES transactions(id)
         ON DELETE SET NULL
@@ -194,18 +158,12 @@ export function migrateDatabase() {
 
     CREATE TABLE IF NOT EXISTS expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
       category TEXT NOT NULL,
       description TEXT NOT NULL,
-
       amount REAL NOT NULL CHECK (amount >= 0),
-
       payment_method TEXT NOT NULL DEFAULT 'CASH',
-
       recorded_by INTEGER NOT NULL,
-
       expense_date TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -216,32 +174,21 @@ export function migrateDatabase() {
 
     CREATE TABLE IF NOT EXISTS eod_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
       user_id INTEGER NOT NULL,
-
       business_date TEXT NOT NULL,
-
       cash_expected REAL NOT NULL DEFAULT 0,
       cash_counted REAL NOT NULL DEFAULT 0,
-
       card_expected REAL NOT NULL DEFAULT 0,
       card_counted REAL NOT NULL DEFAULT 0,
-
       mobile_expected REAL NOT NULL DEFAULT 0,
       mobile_counted REAL NOT NULL DEFAULT 0,
-
       expenses_total REAL NOT NULL DEFAULT 0,
-
       variance REAL NOT NULL DEFAULT 0,
-
       notes TEXT,
-
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
       FOREIGN KEY (user_id)
         REFERENCES users(id)
         ON DELETE RESTRICT,
-
       UNIQUE (business_date)
     );
 
@@ -253,18 +200,12 @@ export function migrateDatabase() {
 
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
       user_id INTEGER,
-
       action TEXT NOT NULL,
       entity TEXT NOT NULL,
-
       entity_id TEXT,
-
       details TEXT,
-
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
       FOREIGN KEY (user_id)
         REFERENCES users(id)
         ON DELETE SET NULL
@@ -272,21 +213,14 @@ export function migrateDatabase() {
 
     CREATE TABLE IF NOT EXISTS stock_movements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-
       product_id INTEGER NOT NULL,
       user_id INTEGER,
-
       type TEXT NOT NULL,
-
       quantity INTEGER NOT NULL,
-
       note TEXT,
-
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-
       FOREIGN KEY(product_id)
         REFERENCES products(id),
-
       FOREIGN KEY(user_id)
         REFERENCES users(id)
     );
@@ -316,6 +250,25 @@ export function migrateDatabase() {
       ADD COLUMN is_favorite INTEGER DEFAULT 0;
     `);
   } catch {}
+  try {
+    db.exec(`
+    ALTER TABLE products
+    ADD COLUMN units_per_pack INTEGER NOT NULL DEFAULT 1
+  `);
+  } catch {}
+
+  try {
+    db.exec(`
+    ALTER TABLE products
+    ADD COLUMN allow_split_sales INTEGER NOT NULL DEFAULT 0
+  `);
+  } catch {}
+  try {
+  db.exec(`
+    ALTER TABLE transaction_items
+    ADD COLUMN sale_type TEXT NOT NULL DEFAULT 'PACK'
+  `);
+} catch {}
 }
 
 export function installUpdatedAtTriggers() {

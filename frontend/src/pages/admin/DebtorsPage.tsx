@@ -12,6 +12,8 @@ import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Field, Input, Select, Textarea } from '../../components/ui/Input';
 import { Table, Td, Th } from '../../components/ui/Table';
+import { PaymentMethod } from '../../types/models';
+
 
 import { customerService } from '../../services/customerService';
 
@@ -22,8 +24,19 @@ import { money, numberInput } from '../../utils/money';
 export function DebtorsPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [debtors, setDebtors] = useState<Debtor[]>([]);
-  const [payments, setPayments] = useState<Record<number, number>>({});
-
+const [payments, setPayments] = useState<
+  Array<{
+    method: PaymentMethod;
+    amount: number;
+    reference: string;
+  }>
+>([
+  {
+    method: "CASH",
+    amount: 0,
+    reference: "",
+  },
+]);
   async function load() {
     const [customerResult, debtorResult] = await Promise.all([
       customerService.customers(),
@@ -75,7 +88,7 @@ export function DebtorsPage() {
   }
 
   async function recordPayment(id: number) {
-    const amount = payments[id] ?? 0;
+    const amount = payments[id]?.amount ?? 0;
 
     if (amount <= 0) return;
 
@@ -83,7 +96,7 @@ export function DebtorsPage() {
 
     setPayments((current) => ({
       ...current,
-      [id]: 0
+      [id]: { ...current[id], amount: 0 }
     }));
 
     await load();
@@ -406,11 +419,14 @@ export function DebtorsPage() {
                         <Input
                           type="number"
                           step="0.01"
-                          value={payments[debt.id] ?? ''}
+                          value={payments[debt.id]?.amount ?? ''}
                           onChange={(event) =>
                             setPayments((current) => ({
                               ...current,
-                              [debt.id]: Number(event.target.value)
+                              [debt.id]: {
+                                ...current[debt.id],
+                                amount: Number(event.target.value)
+                              }
                             }))
                           }
                         />

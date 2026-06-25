@@ -9,6 +9,8 @@ import { transactionService } from "../../services/transactionService";
 import type { Transaction } from "../../types/models";
 import { shortDateTime } from "../../utils/dates";
 import { money } from "../../utils/money";
+import { ReceiptView } from "../../components/ReceiptView";
+import { socket } from "../../lib/socket";
 
 export function TransactionsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -34,13 +36,179 @@ export function TransactionsPage() {
     void search();
   }, []);
 
+  useEffect(() => {
+  socket.on("transaction-created", () => {
+    void search();
+  });
+
+  return () => {
+    socket.off("transaction-created");
+  };
+}, []);
+
   async function openReceipt(id: number) {
     const result = await transactionService.transaction(id);
     setSelected(result.transaction);
   }
 
   function printReceipt() {
-    window.print();
+    const content = document.getElementById("receipt-print");
+
+    if (!content) return;
+
+    const printWindow = window.open("", "", "width=420,height=800");
+
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+    <html>
+      <head>
+        <title>Receipt</title>
+
+        <style>
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            font-family: Arial, sans-serif;
+            width: 80mm;
+            margin: 0 auto;
+            padding: 10px;
+            background: white;
+            color: #000;
+            font-size: 12px;
+          }
+
+          h1,
+          h2,
+          h3,
+          h4,
+          h5,
+          p {
+            margin: 0;
+          }
+
+          .text-center {
+            text-align: center;
+          }
+
+          .font-bold {
+            font-weight: bold;
+          }
+
+          .text-xs {
+            font-size: 11px;
+          }
+
+          .text-sm {
+            font-size: 12px;
+          }
+
+          .text-lg {
+            font-size: 16px;
+          }
+
+          .mt-1 { margin-top: 4px; }
+          .mt-2 { margin-top: 8px; }
+          .mt-4 { margin-top: 16px; }
+          .mt-5 { margin-top: 20px; }
+
+          .pt-3 {
+            padding-top: 12px;
+          }
+
+          .grid {
+            display: grid;
+            gap: 8px;
+          }
+
+          .flex {
+            display: flex;
+          }
+
+          .justify-between {
+            justify-content: space-between;
+          }
+
+          .items-start {
+            align-items: flex-start;
+          }
+
+          .gap-2 {
+            gap: 8px;
+          }
+
+          .gap-3 {
+            gap: 12px;
+          }
+
+          img {
+            width: 40px;
+            height: 40px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+
+            print-color-adjust: exact;
+            -webkit-print-color-adjust: exact;
+          }
+
+          hr {
+            border: none;
+            border-top: 1px dashed #999;
+            margin: 10px 0;
+          }
+
+          .receipt-total {
+            font-size: 18px;
+            font-weight: bold;
+          }
+
+          .receipt-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 12px;
+          }
+              
+          .receipt-item-left {
+            display: flex;
+            gap: 8px;
+            flex: 1;
+          }
+              
+          .receipt-item-total {
+            font-weight: bold;
+            white-space: nowrap;
+            text-align: right;
+            min-width: 70px;
+          }
+
+          .footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 11px;
+            color: #555;
+          }
+        </style>
+      </head>
+
+      <body>
+        ${content.innerHTML}
+      </body>
+    </html>
+  `);
+
+    printWindow.document.close();
+
+    printWindow.focus();
+
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 500);
   }
 
   return (
@@ -249,87 +417,7 @@ export function TransactionsPage() {
       >
         {selected && (
           <>
-            <div
-              id="receipt-print"
-              className="mx-auto max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-xl"
-            >
-              <div className="text-center">
-                <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-slate-900 text-xl font-black text-white">
-                  POS
-                </div>
-
-                <h2 className="mt-4 text-2xl font-black text-slate-900">
-                  Store Receipt
-                </h2>
-
-                <p className="mt-1 text-sm text-slate-500">
-                  {selected.receiptNo}
-                </p>
-              </div>
-
-              <div className="mt-6 grid gap-2 rounded-2xl bg-slate-50 p-4 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Cashier</span>
-                  <strong>{selected.employeeName}</strong>
-                </div>
-
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Date</span>
-                  <strong>{shortDateTime(selected.createdAt)}</strong>
-                </div>
-              </div>
-
-              <div className="my-6 border-t border-dashed border-slate-300" />
-
-              <div className="grid gap-3">
-                {selected.items?.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-start justify-between gap-4"
-                  >
-                    <div>
-                      <p className="font-semibold text-slate-800">
-                        {item.productName}
-                      </p>
-
-                      <p className="text-xs text-slate-500">
-                        Qty: {item.quantity}
-                      </p>
-                    </div>
-
-                    <strong>{money(item.lineTotal)}</strong>
-                  </div>
-                ))}
-              </div>
-
-              <div className="my-6 border-t border-dashed border-slate-300" />
-
-              <div className="grid gap-2 text-sm">
-                <div className="flex justify-between">
-                  <span>Subtotal</span>
-                  <strong>{money(selected.subtotal)}</strong>
-                </div>
-
-                <div className="flex justify-between">
-                  <span>Discount</span>
-                  <strong>{money(selected.discount)}</strong>
-                </div>
-
-                <div className="flex justify-between">
-                  <span>Tax</span>
-                  <strong>{money(selected.tax)}</strong>
-                </div>
-
-                <div className="mt-3 flex justify-between rounded-2xl bg-slate-900 px-4 py-4 text-lg text-white">
-                  <span>Total</span>
-                  <strong>{money(selected.total)}</strong>
-                </div>
-              </div>
-
-              <p className="mt-6 text-center text-xs text-slate-500">
-                Thank you for shopping with us
-              </p>
-            </div>
+            <ReceiptView receipt={selected} settings={{}} />
 
             <Button
               className="mt-6 h-12 w-full rounded-2xl"

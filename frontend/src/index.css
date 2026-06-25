@@ -30,23 +30,14 @@ textarea {
   font: inherit;
 }
 
-@media print {
-  body * {
-    visibility: hidden;
-  }
+@page {
+  margin: 0;
+  size: auto;
+}
 
-  #receipt-print,
-  #receipt-print * {
-    visibility: visible;
-  }
-
-  #receipt-print {
-    position: absolute;
-    inset: 0 auto auto 0;
-    width: 80mm;
-    padding: 8px;
-    background: white;
-  }
+img {
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
 }
 
 @media (display-mode: fullscreen), (display-mode: standalone) {

@@ -28,6 +28,8 @@ export interface Product {
   stockQuantity: number;
   reorderLevel: number;
   active: boolean | number;
+  unitsPerPack: number;
+  allowSplitSales: boolean | number;
   profitMargin?: number;
   isFavorite?: boolean | number;
 }
@@ -78,11 +80,13 @@ export interface TransactionItem {
   productId?: number | null;
   productName: string;
   quantity: number;
+  imageUrl?: string | null;
   unitPrice: number;
   unitCost: number;
   discount: number;
   lineTotal: number;
   profit: number;
+  saleType: "PACK" | "HALF" | "SINGLE";
 }
 
 export interface Transaction {
@@ -114,6 +118,7 @@ export interface CartLine {
   product: Product;
   quantity: number;
   discount: number;
+  saleType?: "PACK" | "HALF" | "SINGLE";
 }
 
 export interface DashboardData {

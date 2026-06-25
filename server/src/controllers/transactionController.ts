@@ -3,11 +3,13 @@ import { db } from "../database/connection.js";
 import { ApiError } from "../utils/ApiError.js";
 import { audit } from "../utils/audit.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { getIo } from "../socket.js";
 
 const transactionItemSchema = z.object({
   productId: z.number().int().positive(),
   quantity: z.number().int().positive(),
   discount: z.number().nonnegative().default(0),
+  saleType: z.enum(["PACK", "HALF", "SINGLE"]).optional().default("PACK"),
 });
 
 const paymentSchema = z.object({
@@ -32,6 +34,8 @@ interface ProductRow {
   price: number;
   cost_price: number;
   stock_quantity: number;
+  units_per_pack: number;
+  allow_split_sales: number;
   active: number;
 }
 
@@ -98,7 +102,8 @@ function getTransactionById(id: number) {
       unit_cost as unitCost,
       discount,
       line_total as lineTotal,
-      profit
+      profit,
+      sale_type as saleType
     FROM transaction_items
     WHERE transaction_id = ?
     ORDER BY id ASC
@@ -134,10 +139,18 @@ export const createTransaction = asyncHandler((req, res) => {
       const product = db
         .prepare(
           `
-        SELECT id, name, price, cost_price, stock_quantity, active
-        FROM products
-        WHERE id = ?
-      `,
+      SELECT
+        id,
+        name,
+        price,
+        cost_price,
+        stock_quantity,
+        active,
+        units_per_pack,
+        allow_split_sales
+      FROM products
+      WHERE id = ?
+    `,
         )
         .get(item.productId) as ProductRow | undefined;
 
@@ -152,10 +165,40 @@ export const createTransaction = asyncHandler((req, res) => {
         );
       }
 
-      const gross = product.price * item.quantity;
+      let unitPrice = product.price;
+
+      if (item.saleType === "HALF" && product.allow_split_sales) {
+        unitPrice = product.price / 2;
+      }
+
+      if (item.saleType === "SINGLE" && product.allow_split_sales) {
+        unitPrice = product.price / (product.units_per_pack || 1);
+      }
+
+      console.log("Processing item:", {
+  product: product.name,
+  saleType: item.saleType,
+  packPrice: product.price,
+  unitsPerPack: product.units_per_pack,
+  allowSplitSales: product.allow_split_sales,
+  calculatedUnitPrice: unitPrice,
+  quantity: item.quantity,
+});
+
+      const gross = unitPrice * item.quantity;
       const lineDiscount = Math.min(item.discount, gross);
       const lineTotal = Number((gross - lineDiscount).toFixed(2));
-      const lineCost = product.cost_price * item.quantity;
+      let unitCost = product.cost_price;
+
+      if (item.saleType === "HALF" && product.allow_split_sales) {
+        unitCost = product.cost_price / 2;
+      }
+
+      if (item.saleType === "SINGLE" && product.allow_split_sales) {
+        unitCost = product.cost_price / (product.units_per_pack || 1);
+      }
+
+      const lineCost = unitCost * item.quantity;
       const profit = Number((lineTotal - lineCost).toFixed(2));
 
       return {
@@ -164,6 +207,9 @@ export const createTransaction = asyncHandler((req, res) => {
         discount: lineDiscount,
         lineTotal,
         profit,
+        saleType: item.saleType ?? "PACK",
+        unitPrice,
+        unitCost,
       };
     });
 
@@ -242,11 +288,11 @@ export const createTransaction = asyncHandler((req, res) => {
     const insertItem = db.prepare(`
       INSERT INTO transaction_items (
         transaction_id, product_id, product_name, quantity, unit_price, unit_cost,
-        discount, line_total, profit
+        discount, line_total, profit, sale_type
       )
       VALUES (
         @transactionId, @productId, @productName, @quantity, @unitPrice, @unitCost,
-        @discount, @lineTotal, @profit
+        @discount, @lineTotal, @profit, @saleType
       )
     `);
     const decrementStock = db.prepare(
@@ -259,15 +305,26 @@ export const createTransaction = asyncHandler((req, res) => {
         productId: item.product.id,
         productName: item.product.name,
         quantity: item.quantity,
-        unitPrice: item.product.price,
-        unitCost: item.product.cost_price,
+        unitPrice: item.unitPrice,
+        unitCost: item.unitCost,
         discount: item.discount,
         lineTotal: item.lineTotal,
         profit: item.profit,
+        saleType: item.saleType ?? "PACK",
       });
+      let stockToDeduct = item.quantity;
+
+      if (item.saleType === "HALF") {
+        stockToDeduct = item.quantity * 0.5;
+      }
+
+      if (item.saleType === "SINGLE") {
+        stockToDeduct = item.quantity / (item.product.units_per_pack || 1);
+      }
+
       decrementStock.run({
         productId: item.product.id,
-        quantity: item.quantity,
+        quantity: stockToDeduct,
       });
     });
 
@@ -314,6 +371,9 @@ export const createTransaction = asyncHandler((req, res) => {
       });
     }
 
+    getIo().emit("transaction-created");
+    getIo().emit("stock-updated");
+
     return transactionId;
   })();
 
@@ -322,18 +382,19 @@ export const createTransaction = asyncHandler((req, res) => {
 });
 
 export const listTransactions = asyncHandler((req, res) => {
-  const search = typeof req.query.search === "string" ? `%${req.query.search}%` : null;
+  const search =
+    typeof req.query.search === "string" ? `%${req.query.search}%` : null;
 
   const from = typeof req.query.from === "string" ? req.query.from : null;
 
   const to = typeof req.query.to === "string" ? req.query.to : null;
 
   const employeeId =
-    String(req.user?.role) === 'ADMIN'
+    String(req.user?.role) === "ADMIN"
       ? req.query.employeeId
         ? Number(req.query.employeeId)
         : null
-      : req.user?.id ?? null;
+      : (req.user?.id ?? null);
 
   const transactions = db
     .prepare(

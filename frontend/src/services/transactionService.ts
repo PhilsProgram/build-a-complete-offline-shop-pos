@@ -3,7 +3,7 @@ import { apiRequest } from './http';
 
 export interface CheckoutPayload {
   customerId?: number | null;
-  items: Array<{ productId: number; quantity: number; discount: number }>;
+  items: Array<{ productId: number; quantity: number; discount: number, saleType?: "PACK" | "HALF" | "SINGLE"; }>;
   discount: number;
   tax: number;
   payments: Array<{ method: PaymentMethod; amount: number; reference?: string }>;

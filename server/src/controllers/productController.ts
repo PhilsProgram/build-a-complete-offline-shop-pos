@@ -13,6 +13,8 @@ const productSchema = z.object({
   price: z.number().nonnegative(),
   costPrice: z.number().nonnegative().default(0),
   stockQuantity: z.number().int().nonnegative().default(0),
+  unitsPerPack: z.number().int().positive().default(1),
+  allowSplitSales: z.boolean().default(false),
   reorderLevel: z.number().int().nonnegative().default(5),
   active: z.boolean().default(true),
 });
@@ -41,6 +43,8 @@ export const listProducts = asyncHandler((req, res) => {
       p.reorder_level as reorderLevel,
       p.active,
       ROUND(p.price - p.cost_price, 2) as profitMargin,
+      p.units_per_pack as unitsPerPack,
+      p.allow_split_sales as allowSplitSales,
       p.created_at as createdAt,
       p.updated_at as updatedAt,
       p.is_favorite as isFavorite
@@ -68,7 +72,7 @@ export const getProduct = asyncHandler((req, res) => {
     SELECT
       id, sku, barcode, name, description, category_id as categoryId, image_url as imageUrl,
       price, cost_price as costPrice, stock_quantity as stockQuantity, reorder_level as reorderLevel,
-      active, created_at as createdAt, updated_at as updatedAt
+      units_per_pack as unitsPerPack, allow_split_sales as allowSplitSales, active, created_at as createdAt, updated_at as updatedAt
     FROM products
     WHERE id = ?
   `,
@@ -90,11 +94,11 @@ export const createProduct = asyncHandler((req, res) => {
       `
     INSERT INTO products (
       sku, barcode, name, description, category_id, image_url,
-      price, cost_price, stock_quantity, reorder_level, active
+      price, cost_price, units_per_pack, allow_split_sales, stock_quantity, reorder_level, active
     )
     VALUES (
       @sku, @barcode, @name, @description, @categoryId, @imageUrl,
-      @price, @costPrice, @stockQuantity, @reorderLevel, @active
+      @price, @costPrice, @unitsPerPack, @allowSplitSales, @stockQuantity, @reorderLevel, @active
     )
   `,
     )
@@ -109,6 +113,8 @@ export const createProduct = asyncHandler((req, res) => {
       costPrice: input.costPrice,
       stockQuantity: input.stockQuantity,
       reorderLevel: input.reorderLevel,
+      unitsPerPack: input.unitsPerPack,
+      allowSplitSales: input.allowSplitSales? 1 : 0,
       active: input.active ? 1 : 0,
     });
 
@@ -134,6 +140,8 @@ export const updateProduct = asyncHandler((req, res) => {
       price = COALESCE(@price, price),
       cost_price = COALESCE(@costPrice, cost_price),
       stock_quantity = COALESCE(@stockQuantity, stock_quantity),
+      units_per_pack = COALESCE(@unitsPerPack, units_per_pack),
+      allow_split_sales = COALESCE(@allowSplitSales, allow_split_sales),
       reorder_level = COALESCE(@reorderLevel, reorder_level),
       active = COALESCE(@active, active)
     WHERE id = @id
@@ -151,6 +159,8 @@ export const updateProduct = asyncHandler((req, res) => {
       costPrice: input.costPrice ?? null,
       stockQuantity: input.stockQuantity ?? null,
       reorderLevel: input.reorderLevel ?? null,
+      unitsPerPack: input.unitsPerPack ?? 1,
+      allowSplitSales: input.allowSplitSales? 1 : 0,
       active: input.active === undefined ? null : input.active ? 1 : 0,
     });
 
@@ -252,7 +262,7 @@ export const productMovements = asyncHandler((req, res) => {
   const productId = Number(req.params.id);
 
   const movements = db.prepare(`
-    SELECT32
+    SELECT
       sm.*,
       u.name as userName
     FROM stock_movements sm

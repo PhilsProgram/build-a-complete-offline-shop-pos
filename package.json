@@ -1,6 +1,6 @@
 {
   "name": "offline-shop-pos",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Offline-first LAN shop POS and management system with React, Node.js, Express, and SQLite.",
   "workspaces": [

@@ -22,6 +22,7 @@ import { money, numberInput } from "../../utils/money";
 import { shortDateTime } from "../../utils/dates";
 import { Modal } from "../../components/ui/Modal";
 import { getImageUrl } from "../../utils/api";
+import { socket } from "../../lib/socket";
 
 const emptyProduct = {
   name: "",
@@ -32,6 +33,8 @@ const emptyProduct = {
   imageUrl: "",
   price: 0,
   costPrice: 0,
+  unitsPerPack: 1,
+  allowSplitSales: false,
   stockQuantity: 0,
   reorderLevel: 5,
 };
@@ -61,6 +64,16 @@ export function ProductsPage() {
   useEffect(() => {
     void load().catch((err) => setError(err.message));
   }, []);
+
+  useEffect(() => {
+  socket.on("stock-updated", () => {
+    void load().catch((err) => setError(err.message));
+  });
+
+  return () => {
+    socket.off("stock-updated");
+  };
+}, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,7 +109,8 @@ export function ProductsPage() {
         : null,
 
       imageUrl,
-
+      unitsPerPack: numberInput(form.get("unitsPerPack")) || 1,
+      allowSplitSales: Boolean(form.get("allowSplitSales")),
       price: numberInput(form.get("price")),
       costPrice: numberInput(form.get("costPrice")),
       stockQuantity: Number(form.get("stockQuantity") ?? 0),
@@ -364,6 +378,22 @@ export function ProductsPage() {
                 </Field>
               </div>
 
+              <Field label="Units Per Pack">
+                <Input
+                  type="number"
+                  min="1"
+                  name="unitsPerPack"
+                  defaultValue={editing?.unitsPerPack ?? 1}
+                />
+              </Field>
+              <Field label="Allow Split Sales">
+                <input
+                  type="checkbox"
+                  name="allowSplitSales"
+                  defaultChecked={Boolean(editing?.allowSplitSales)}
+                />
+              </Field>
+
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Stock Quantity">
                   <Input
@@ -538,15 +568,29 @@ export function ProductsPage() {
                     <Td>{money(product.price)}</Td>
 
                     <Td>
-                      <Badge
-                        tone={
-                          product.stockQuantity <= product.reorderLevel
-                            ? "warn"
-                            : "good"
-                        }
-                      >
-                        {product.stockQuantity}
-                      </Badge>
+                      <div className="flex flex-col gap-1">
+                        <Badge
+                          tone={
+                            product.stockQuantity <= product.reorderLevel
+                              ? "warn"
+                              : "good"
+                          }
+                        >
+                          {Number.isInteger(product.stockQuantity)
+                            ? product.stockQuantity
+                            : product.stockQuantity.toFixed(2)}
+                        </Badge>
+
+                        {product.allowSplitSales ? (
+                          <p className="text-xs text-emerald-600">
+                            {product.unitsPerPack ?? 1} units/pack
+                          </p>
+                        ) : (
+                          <p className="text-xs text-slate-400">
+                            No split sales
+                          </p>
+                        )}
+                      </div>
                     </Td>
 
                     <Td>
@@ -573,7 +617,7 @@ export function ProductsPage() {
                           setRestockQuantity(1);
                         }}
                       >
-                      +
+                        +
                       </Button>
                       <Button
                         type="button"
@@ -635,6 +679,8 @@ export function ProductsPage() {
                       imageUrl: restockProduct.imageUrl,
                       price: restockProduct.price,
                       costPrice: restockProduct.costPrice,
+                      unitsPerPack: restockProduct.unitsPerPack,
+                      allowSplitSales: restockProduct.allowSplitSales,
                       stockQuantity:
                         restockProduct.stockQuantity + restockQuantity,
                       reorderLevel: restockProduct.reorderLevel,

@@ -9,6 +9,9 @@ import { startBackupScheduler } from './services/backupScheduler.js';
 import path from "path";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import express from "express";
+import http from "http";
+import { setIo } from "./socket.js"
+import { Server } from "socket.io";
 fs.mkdirSync(config.backupDir, { recursive: true });
 fs.mkdirSync(config.uploadsDir, { recursive: true });
 
@@ -18,8 +21,16 @@ seedDatabase();
 startBackupScheduler();
 
 const app = createApp();
-
-
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+  },
+});
+setIo(io);
+io.on("connection", (socket) => {
+  console.log("Socket connected:", socket.id);
+});
 
 if (config.httpsEnabled) {
   const key = fs.readFileSync(config.httpsKeyPath);
@@ -30,7 +41,7 @@ if (config.httpsEnabled) {
     console.log('Use a trusted local certificate for PWA install support on LAN devices.');
   });
 } else {
-  app.listen(config.port, config.host, () => {
+  server.listen(config.port, config.host, () => {
     console.log(`POS server listening on http://${config.host}:${config.port}`);
     console.log(`SQLite database: ${dbPath}`);
     console.log('Use the admin PC LAN IPv4 address from other devices on the same router/WiFi.');

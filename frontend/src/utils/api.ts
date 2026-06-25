@@ -1,5 +1,6 @@
 export const API_BASE_URL =
-  "http://localhost:4000";
+  import.meta.env.VITE_API_BASE_URL ||
+  `${window.location.protocol}//${window.location.hostname}:4000`;
 
 export function getImageUrl(
   path?: string | null,
