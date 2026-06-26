@@ -930,6 +930,7 @@ export function PosPage() {
                   min={1}
                   max={selectedProduct.stockQuantity}
                   value={selectedQuantity}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => {
                     const value = Number(e.target.value);
 
