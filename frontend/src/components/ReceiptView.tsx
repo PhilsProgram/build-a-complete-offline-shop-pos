@@ -18,15 +18,15 @@ export function ReceiptView({ receipt, settings }: ReceiptViewProps) {
       {/* Shop Header */}
       <div className="text-center">
         <h2 className="text-xl font-black uppercase tracking-wide">
-          {String(settings.shopName ?? "Offline Shop POS")}
+          {String(settings.shopName ?? "KET DYNASTY ENT.")}
         </h2>
 
         <p className="mt-1 text-xs text-slate-500">
-          {String(settings.shopAddress ?? "")}
+          {String(settings.shopAddress ?? "KEJETIA || F2584 || FF2585")}
         </p>
 
         <p className="text-xs text-slate-500">
-          {String(settings.shopPhone ?? "")}
+          {String(settings.shopPhone ?? "0593 487-925")}
         </p>
       </div>
 
@@ -120,7 +120,7 @@ export function ReceiptView({ receipt, settings }: ReceiptViewProps) {
         </p>
 
         <p className="mt-2 text-xs text-slate-500">
-          {String(settings.receiptFooter ?? "")}
+          {String(settings.receiptFooter ?? "For any complaints, call the number above. Have a fruitful market day!")}
         </p>
       </div>
     </div>
